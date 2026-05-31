@@ -19,6 +19,7 @@ import os
 import json
 import base64
 import operator
+from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen
 from flask import Flask, request, jsonify, render_template_string
@@ -192,7 +193,35 @@ if LLM_PROVIDER == "openrouter":
 
 client = make_client(API_KEY, BASE_URL, openrouter_headers)
 image_client = make_client(IMAGE_API_KEY, IMAGE_BASE_URL)
-history = []
+HISTORY_FILE = Path(os.environ.get("HISTORY_FILE", "history.json"))
+
+
+def load_history():
+    if not HISTORY_FILE.exists():
+        return []
+    try:
+        with HISTORY_FILE.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+        if isinstance(data, list):
+            return data
+    except (OSError, json.JSONDecodeError):
+        pass
+    return []
+
+
+def save_history():
+    with HISTORY_FILE.open("w", encoding="utf-8") as file:
+        json.dump(history, file, ensure_ascii=False, indent=2)
+
+
+def clear_history_file():
+    try:
+        HISTORY_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
+history = load_history()
 
 HTML = """
 <!DOCTYPE html>
@@ -742,6 +771,7 @@ def chat():
         # ── Обновляем историю (без base64 чтобы не раздувать контекст) ────
         history[-1] = {"role": "user", "content": history_text}
         history.append({"role": "assistant", "content": reply or ""})
+        save_history()
 
         result = {
             "reply": reply,
@@ -766,6 +796,7 @@ def chat():
 @app.route('/reset', methods=['POST'])
 def reset():
     history.clear()
+    clear_history_file()
     return jsonify({"status": "ok"})
 
 
